@@ -1,0 +1,29 @@
+# Build artifacts
+/target
+/target2
+
+# Release binaries
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Environment
+.env
+.env.local
+
+# Claude/MCP development artifacts
+.claude/
+.playwright-mcp/
+
+# Internal development docs (not for public release)
+CLAUDE.md
