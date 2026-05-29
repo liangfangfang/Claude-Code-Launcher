@@ -150,16 +150,24 @@ fn validate_projects_format(parsed: &serde_json::Value) -> Result<(), String> {
 
 /// 校验 groups.json 格式。
 ///
-/// 当前版本格式：`{id: {id, name, order, created_at}}`
+/// 当前版本格式：`{"groups": {id: {id, name, order, created_at}}}`
 fn validate_groups_format(parsed: &serde_json::Value) -> Result<(), String> {
     let obj = parsed.as_object()
         .ok_or("groups.json 应为 JSON 对象")?;
 
-    if obj.is_empty() {
+    // 必须有 "groups" 字段
+    if !obj.contains_key("groups") {
+        return Err("缺少 groups 字段".to_string());
+    }
+
+    let groups = obj["groups"].as_object()
+        .ok_or("groups 字段应为对象")?;
+
+    if groups.is_empty() {
         return Ok(());
     }
 
-    for (key, value) in obj.iter().take(1) {
+    for (key, value) in groups.iter().take(1) {
         let group = value.as_object()
             .ok_or(format!("分组 {key} 应为对象"))?;
         if !group.contains_key("name") {
@@ -325,22 +333,43 @@ mod tests {
     #[test]
     fn test_validate_groups_format() {
         let parsed = serde_json::json!({
-            "abc": {
-                "id": "abc",
-                "name": "分组1",
-                "order": 0,
-                "created_at": "2026-01-01T00:00:00Z"
+            "groups": {
+                "abc": {
+                    "id": "abc",
+                    "name": "分组1",
+                    "order": 0,
+                    "created_at": "2026-01-01T00:00:00Z"
+                }
             }
         });
         assert!(validate_groups_format(&parsed).is_ok());
     }
 
     #[test]
+    fn test_validate_groups_empty() {
+        let parsed = serde_json::json!({"groups": {}});
+        assert!(validate_groups_format(&parsed).is_ok());
+    }
+
+    #[test]
     fn test_validate_groups_missing_name() {
+        let parsed = serde_json::json!({
+            "groups": {
+                "abc": {
+                    "id": "abc",
+                    "order": 0
+                }
+            }
+        });
+        assert!(validate_groups_format(&parsed).is_err());
+    }
+
+    #[test]
+    fn test_validate_groups_no_groups_key() {
         let parsed = serde_json::json!({
             "abc": {
                 "id": "abc",
-                "order": 0
+                "name": "分组1"
             }
         });
         assert!(validate_groups_format(&parsed).is_err());
