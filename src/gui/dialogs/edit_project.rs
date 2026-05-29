@@ -1,4 +1,4 @@
-/// 编辑项目对话框 - 修改名称/路径，模板重新应用选项。
+/// 编辑项目对话框 - 修改名称/路径/分组，模板重新应用选项。
 use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Element, Length};
 
@@ -10,6 +10,8 @@ pub struct State {
     pub project_id: String,
     pub name: String,
     pub path: String,
+    pub group_options: Vec<String>,
+    pub selected_group: Option<String>,
     pub template_options: Vec<String>,
     pub selected_template: Option<String>,
     pub error: Option<String>,
@@ -21,11 +23,15 @@ impl State {
         name: String,
         path: String,
         template_options: Vec<String>,
+        group_options: Vec<String>,
+        selected_group: Option<String>,
     ) -> Self {
         Self {
             project_id,
             name,
             path,
+            group_options,
+            selected_group,
             template_options,
             selected_template: None,
             error: None,
@@ -38,6 +44,7 @@ pub enum Message {
     NameChanged(String),
     PathChanged(String),
     BrowseClicked,
+    GroupSelected(String),
     TemplateSelected(String),
     Save,
     Cancel,
@@ -61,6 +68,15 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     let path_row = row![path_input, browse_btn].spacing(8);
 
+    // 分组选择
+    let group_label = text("项目分组：").size(13);
+    let group_pick = pick_list(
+        state.group_options.as_slice(),
+        state.selected_group.clone(),
+        Message::GroupSelected,
+    );
+
+    // 模板选择
     let template_label = text("应用配置模板：").size(13);
     let template_pick = pick_list(
         state.template_options.as_slice(),
@@ -88,6 +104,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
         name_input,
         path_label,
         path_row,
+        group_label,
+        group_pick,
         template_label,
         template_pick
     ]

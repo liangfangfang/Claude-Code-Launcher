@@ -2,12 +2,43 @@ use chrono::{DateTime, Utc};
 /// Core data models for Claude Code Launcher.
 use serde::{Deserialize, Serialize};
 
+/// 自定义日期反序列化函数，兼容旧格式（没有时区后缀）
+fn deserialize_datetime_compat<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+
+    // 尝试 RFC 3339 格式（带 Z）
+    if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    // 尝试没有时区的格式（假设是 UTC）
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f") {
+        return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    // 尝试更简单的格式
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S") {
+        return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    Err(serde::de::Error::custom(format!(
+        "无法解析日期格式: {s}"
+    )))
+}
+
 /// Represents a Claude Code project.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
+    /// 项目所属分组 ID，None 表示默认分组
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_datetime_compat")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -17,10 +48,45 @@ impl Project {
             id: uuid::Uuid::new_v4().to_string(),
             name,
             path,
+            group_id: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    pub fn with_group(name: String, path: String, group_id: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            path,
+            group_id: Some(group_id),
             created_at: chrono::Utc::now(),
         }
     }
 }
+
+/// Represents a project group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGroup {
+    pub id: String,
+    pub name: String,
+    pub order: i32,
+    #[serde(deserialize_with = "deserialize_datetime_compat")]
+    pub created_at: DateTime<Utc>,
+}
+
+impl ProjectGroup {
+    pub fn new(name: String, order: i32) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            order,
+            created_at: chrono::Utc::now(),
+        }
+    }
+}
+
+/// Maximum number of groups allowed.
+pub const MAX_GROUPS: usize = 10;
 
 /// Template for project settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]

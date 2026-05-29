@@ -52,12 +52,12 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    /// Creates a new BackupManager with the given Claude directory path.
+    /// Creates a new `BackupManager` with the given Claude directory path.
     pub fn new(claude_dir: PathBuf) -> Self {
         Self { claude_dir }
     }
 
-    /// Creates a BackupManager with the default Claude directory `~/.claude`.
+    /// Creates a `BackupManager` with the default Claude directory `~/.claude`.
     pub fn default_manager() -> Result<Self, BackupError> {
         let home = dirs::home_dir().ok_or(BackupError::HomeDirNotFound)?;
         Ok(Self {
@@ -222,7 +222,7 @@ impl BackupManager {
         }
 
         std::fs::copy(&backup, &settings)
-            .map_err(|e| BackupError::WriteError(format!("恢复设置失败: {}", e)))?;
+            .map_err(|e| BackupError::WriteError(format!("恢复设置失败: {e}")))?;
 
         // Clean up .disabled file if it exists
         if disabled.exists() {

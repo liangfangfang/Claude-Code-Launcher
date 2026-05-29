@@ -1,4 +1,4 @@
-/// 添加项目对话框 - 输入名称、选择路径、选择模板。
+/// 添加项目对话框 - 输入名称、选择路径、选择分组、选择模板。
 use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Element, Length};
 
@@ -9,19 +9,24 @@ use crate::gui::theme;
 pub struct State {
     pub name: String,
     pub path: String,
+    pub group_options: Vec<String>,
+    pub selected_group: Option<String>,
     pub template_options: Vec<String>,
     pub selected_template: Option<String>,
     pub error: Option<String>,
 }
 
 impl State {
-    pub fn new(template_options: Vec<String>) -> Self {
-        let default_sel = template_options.first().cloned();
+    pub fn new(template_options: Vec<String>, group_options: Vec<String>) -> Self {
+        let default_template = template_options.first().cloned();
+        let default_group = group_options.first().cloned();
         Self {
             name: String::new(),
             path: String::new(),
+            group_options,
+            selected_group: default_group,
             template_options,
-            selected_template: default_sel,
+            selected_template: default_template,
             error: None,
         }
     }
@@ -33,6 +38,7 @@ pub enum Message {
     NameChanged(String),
     PathChanged(String),
     BrowseClicked,
+    GroupSelected(String),
     TemplateSelected(String),
     Save,
     Cancel,
@@ -56,8 +62,16 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     let path_row = row![path_input, browse_btn].spacing(8);
 
+    // 分组选择
+    let group_label = text("项目分组：").size(13);
+    let group_pick = pick_list(
+        state.group_options.as_slice(),
+        state.selected_group.clone(),
+        Message::GroupSelected,
+    );
+
+    // 模板选择
     let template_label = text("配置模板：").size(13);
-    let _default_opt = "（不应用模板）".to_string();
     let template_pick = pick_list(
         state.template_options.as_slice(),
         state.selected_template.clone(),
@@ -84,6 +98,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
         name_input,
         path_label,
         path_row,
+        group_label,
+        group_pick,
         template_label,
         template_pick
     ]

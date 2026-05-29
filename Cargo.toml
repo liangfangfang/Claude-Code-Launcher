@@ -1,6 +1,6 @@
 [package]
 name = "claude-launcher"
-version = "2.1.0"
+version = "2.2.1"
 edition = "2024"
 description = "Claude Code Launcher - A Windows GUI tool for managing and launching Claude Code projects"
 authors = ["akchth"]
@@ -21,8 +21,20 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [dev-dependencies]
 tempfile = "3"
+
+[build-dependencies]
+winres = "0.1"
 
 [[bin]]
 name = "claude-launcher"
@@ -32,3 +44,13 @@ path = "src/main.rs"
 opt-level = 3
 lto = true
 strip = true
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+
+[patch.crates-io]
+iced_winit = { path = "iced_winit_local" }

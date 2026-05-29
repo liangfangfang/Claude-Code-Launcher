@@ -2,8 +2,8 @@
 /// into Claude Code settings.
 ///
 /// Provides 7 injectable items matching the Python source exactly:
-/// agent_teams, thinking_mode, skip_dangerous, mcp_web_search,
-/// mcp_web_reader, npm_permissions, pip_permissions.
+/// `agent_teams`, `thinking_mode`, `skip_dangerous`, `mcp_web_search`,
+/// `mcp_web_reader`, `npm_permissions`, `pip_permissions`.
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,19 @@ pub fn build_injectable_items() -> HashMap<String, InjectableItem> {
 /// Returns all injectable configuration items.
 pub fn get_all_items() -> HashMap<String, InjectableItem> {
     build_injectable_items()
+}
+
+/// Returns injectable item keys in a fixed display order.
+pub fn ordered_keys() -> Vec<&'static str> {
+    vec![
+        "agent_teams",
+        "thinking_mode",
+        "skip_dangerous",
+        "mcp_web_search",
+        "mcp_web_reader",
+        "npm_permissions",
+        "pip_permissions",
+    ]
 }
 
 /// Detects which injectable items are currently active in the config.

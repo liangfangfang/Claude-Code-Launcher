@@ -56,19 +56,19 @@ pub struct ProjectManager {
 }
 
 impl ProjectManager {
-    /// Creates a new ProjectManager with the given storage path.
+    /// Creates a new `ProjectManager` with the given storage path.
     pub fn new(storage_path: PathBuf) -> Self {
         Self { storage_path }
     }
 
-    /// Creates a ProjectManager with the default storage path
+    /// Creates a `ProjectManager` with the default storage path
     /// `~/.claude-launcher-v2/projects.json`.
     pub fn default_manager() -> Result<Self, ProjectError> {
         let base = dirs::home_dir()
             .ok_or_else(|| ProjectError::PathResolveError("无法获取用户主目录".to_string()))?;
-        let dir = base.join(".claude-launcher-v2");
+        let dir = base.join(".claude-launcher");
         std::fs::create_dir_all(&dir)
-            .map_err(|e| ProjectError::WriteError(format!("无法创建目录 {:?}: {}", dir, e)))?;
+            .map_err(|e| ProjectError::WriteError(format!("无法创建目录 {dir:?}: {e}")))?;
         Ok(Self {
             storage_path: dir.join("projects.json"),
         })
@@ -97,12 +97,12 @@ impl ProjectManager {
 
         // Try new format first
         let parsed: serde_json::Value = serde_json::from_str(&raw)
-            .map_err(|e| ProjectError::ParseError(format!("JSON 解析失败: {}", e)))?;
+            .map_err(|e| ProjectError::ParseError(format!("JSON 解析失败: {e}")))?;
 
         if parsed.is_object() && parsed.get("projects").is_some() {
             // Legacy format: {"projects": [...]}
             let legacy: LegacyProjectStore = serde_json::from_value(parsed.clone())
-                .map_err(|e| ProjectError::ParseError(format!("旧格式迁移失败: {}", e)))?;
+                .map_err(|e| ProjectError::ParseError(format!("旧格式迁移失败: {e}")))?;
             let store: ProjectStore = legacy
                 .projects
                 .into_iter()
@@ -114,7 +114,7 @@ impl ProjectManager {
         } else if parsed.is_object() {
             // New format: {id: project_dict}
             let store: ProjectStore = serde_json::from_value(parsed)
-                .map_err(|e| ProjectError::ParseError(format!("项目数据解析失败: {}", e)))?;
+                .map_err(|e| ProjectError::ParseError(format!("项目数据解析失败: {e}")))?;
             Ok(store)
         } else {
             Err(ProjectError::ParseError(
@@ -127,11 +127,11 @@ impl ProjectManager {
     fn save_store(&self, store: &ProjectStore) -> Result<(), ProjectError> {
         if let Some(parent) = self.storage_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                ProjectError::WriteError(format!("无法创建目录 {:?}: {}", parent, e))
+                ProjectError::WriteError(format!("无法创建目录 {parent:?}: {e}"))
             })?;
         }
         let json = serde_json::to_string_pretty(store)
-            .map_err(|e| ProjectError::WriteError(format!("JSON 序列化失败: {}", e)))?;
+            .map_err(|e| ProjectError::WriteError(format!("JSON 序列化失败: {e}")))?;
         std::fs::write(&self.storage_path, json).map_err(|e| {
             ProjectError::WriteError(format!("无法写入 {:?}: {}", self.storage_path, e))
         })?;
@@ -177,8 +177,7 @@ impl ProjectManager {
 
         if store.len() >= MAX_PROJECTS {
             return Err(ProjectError::ProjectLimitReached(format!(
-                "最多支持 {} 个项目",
-                MAX_PROJECTS
+                "最多支持 {MAX_PROJECTS} 个项目"
             )));
         }
 
@@ -253,6 +252,25 @@ impl ProjectManager {
             project.path = new_path;
         }
 
+        store.insert(id.to_string(), project.clone());
+        self.save_store(&store)?;
+
+        Ok(project)
+    }
+
+    /// Updates a project's group. Pass `None` to remove from group.
+    pub fn update_project_group(
+        &self,
+        id: &str,
+        group_id: Option<String>,
+    ) -> Result<Project, ProjectError> {
+        let mut store = self.load_store()?;
+        let mut project = store
+            .get(id)
+            .cloned()
+            .ok_or_else(|| ProjectError::ProjectNotFound(id.to_string()))?;
+
+        project.group_id = group_id;
         store.insert(id.to_string(), project.clone());
         self.save_store(&store)?;
 

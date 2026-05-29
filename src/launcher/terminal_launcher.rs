@@ -166,14 +166,13 @@ pub fn create_launch_scripts(
     project_name: &str,
     claude_cmd_str: &str,
 ) -> Result<(PathBuf, PathBuf), LauncherError> {
-    let window_title = format!("{} - Claude Code", project_name);
+    let window_title = format!("{project_name} - Claude Code");
 
     // --- PowerShell script ---
     let ps1_content = format!(
-        "Set-Location -LiteralPath \"{}\"\n\
-         $host.UI.RawUI.WindowTitle = \"{}\"\n\
-         {}\n",
-        project_path, window_title, claude_cmd_str
+        "Set-Location -LiteralPath \"{project_path}\"\n\
+         $host.UI.RawUI.WindowTitle = \"{window_title}\"\n\
+         {claude_cmd_str}\n"
     );
     let ps1_path = temp_script_path("ps1");
     // 添加 UTF-8 BOM，确保 PowerShell 5.x（Windows 内置版）能正确识别编码
@@ -190,12 +189,11 @@ pub fn create_launch_scripts(
     // --- Batch script ---
     let bat_content = format!(
         "@echo off\n\
-         title {}\n\
-         cd /d \"{}\"\n\
-         echo Starting Claude Code in: {}\n\
+         title {window_title}\n\
+         cd /d \"{project_path}\"\n\
+         echo Starting Claude Code in: {project_name}\n\
          echo.\n\
-         {}\n",
-        window_title, project_path, project_name, claude_cmd_str
+         {claude_cmd_str}\n"
     );
     let bat_path = temp_script_path("bat");
     fs::write(&bat_path, &bat_content).map_err(|e| {
@@ -241,7 +239,7 @@ fn launch_in_wt(
         LauncherError::ExecutableNotFound("找不到 Windows Terminal (wt.exe)".to_string())
     })?;
 
-    let title = format!("{} - Claude Code", project_name);
+    let title = format!("{project_name} - Claude Code");
     let ps1 = ps1_path.to_string_lossy().to_string();
 
     Command::new(&wt_exe)
@@ -259,7 +257,7 @@ fn launch_in_wt(
             &ps1,
         ])
         .spawn()
-        .map_err(|e| LauncherError::LaunchFailed(format!("启动 Windows Terminal 失败: {}", e)))
+        .map_err(|e| LauncherError::LaunchFailed(format!("启动 Windows Terminal 失败: {e}")))
 }
 
 /// Spawn Claude Code inside Command Prompt.
@@ -269,7 +267,7 @@ fn launch_in_cmd(bat_path: &Path) -> Result<Child, LauncherError> {
     Command::new("cmd.exe")
         .args(["/k", &bat])
         .spawn()
-        .map_err(|e| LauncherError::LaunchFailed(format!("启动命令提示符失败: {}", e)))
+        .map_err(|e| LauncherError::LaunchFailed(format!("启动命令提示符失败: {e}")))
 }
 
 /// Spawn Claude Code inside PowerShell.
@@ -284,7 +282,7 @@ fn launch_in_powershell(ps1_path: &Path) -> Result<Child, LauncherError> {
     Command::new("powershell.exe")
         .args(["-NoExit", "-ExecutionPolicy", "Bypass", "-File", &ps1])
         .spawn()
-        .map_err(|e| LauncherError::LaunchFailed(format!("启动 PowerShell 失败: {}", e)))
+        .map_err(|e| LauncherError::LaunchFailed(format!("启动 PowerShell 失败: {e}")))
 }
 
 // ---------------------------------------------------------------------------

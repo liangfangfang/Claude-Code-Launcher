@@ -56,9 +56,13 @@ pub fn view(
         theme::danger_btn_style(),
     );
 
-    let buttons = column![launch_btn, edit_btn, config_btn, open_dir_btn, delete_btn]
-        .spacing(4)
-        .width(Length::Fixed(80.0));
+    let buttons = column![
+        row![launch_btn, edit_btn].spacing(4),
+        row![config_btn, open_dir_btn].spacing(4),
+        delete_btn,
+    ]
+    .spacing(4)
+    .width(Length::Fixed(160.0));
 
     let card_row = row![icon, info, buttons]
         .spacing(10)

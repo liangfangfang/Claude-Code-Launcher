@@ -90,21 +90,21 @@ pub struct TemplatesManager {
 }
 
 impl TemplatesManager {
-    /// Creates a new TemplatesManager with the given storage path.
+    /// Creates a new `TemplatesManager` with the given storage path.
     pub fn new(storage_path: PathBuf) -> Self {
         let mgr = Self { storage_path };
         mgr.ensure_storage();
         mgr
     }
 
-    /// Creates a TemplatesManager with the default storage path
+    /// Creates a `TemplatesManager` with the default storage path
     /// `~/.claude-launcher-v2/templates.json`.
     pub fn default_manager() -> Result<Self, TemplateError> {
         let base = dirs::home_dir()
             .ok_or_else(|| TemplateError::ReadError("无法获取用户主目录".to_string()))?;
-        let dir = base.join(".claude-launcher-v2");
+        let dir = base.join(".claude-launcher");
         std::fs::create_dir_all(&dir)
-            .map_err(|e| TemplateError::WriteError(format!("无法创建目录 {:?}: {}", dir, e)))?;
+            .map_err(|e| TemplateError::WriteError(format!("无法创建目录 {dir:?}: {e}")))?;
         Ok(Self::new(dir.join("templates.json")))
     }
 
@@ -116,12 +116,12 @@ impl TemplatesManager {
     // ── Storage init ─────────────────────────────────────────────
 
     fn ensure_storage(&self) {
-        if !self.storage_path.exists() {
-            if !self.try_migrate_old_format() {
-                self.init_default_storage();
-            }
-        } else {
+        if self.storage_path.exists() {
             self.validate_storage_structure();
+            // 尝试从旧格式迁移（即使 templates.json 已存在）
+            self.try_migrate_old_format();
+        } else if !self.try_migrate_old_format() {
+            self.init_default_storage();
         }
     }
 
@@ -144,8 +144,8 @@ impl TemplatesManager {
             Err(_) => return false,
         };
 
-        let id = uuid::Uuid::new_v4().to_string();
         let template = SettingsTemplate::new("迁移的模板".to_string(), old_data);
+        let id = template.id.clone();
         let store = TemplateStore {
             default_template_id: Some(id.clone()),
             templates: {
@@ -199,7 +199,7 @@ impl TemplatesManager {
         }
 
         let parsed: serde_json::Value = serde_json::from_str(&raw)
-            .map_err(|e| TemplateError::ParseError(format!("JSON 解析失败: {}", e)))?;
+            .map_err(|e| TemplateError::ParseError(format!("JSON 解析失败: {e}")))?;
 
         // Legacy: { "name": "...", "content": {...} }
         if let Some(obj) = parsed.as_object()
@@ -210,7 +210,7 @@ impl TemplatesManager {
         }
 
         let store: TemplateStore = serde_json::from_value(parsed)
-            .map_err(|e| TemplateError::ParseError(format!("模板数据解析失败: {}", e)))?;
+            .map_err(|e| TemplateError::ParseError(format!("模板数据解析失败: {e}")))?;
         Ok(store)
     }
 
@@ -245,11 +245,11 @@ impl TemplatesManager {
     fn save_store(&self, store: &TemplateStore) -> Result<(), TemplateError> {
         if let Some(parent) = self.storage_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                TemplateError::WriteError(format!("无法创建目录 {:?}: {}", parent, e))
+                TemplateError::WriteError(format!("无法创建目录 {parent:?}: {e}"))
             })?;
         }
         let json = serde_json::to_string_pretty(store)
-            .map_err(|e| TemplateError::WriteError(format!("JSON 序列化失败: {}", e)))?;
+            .map_err(|e| TemplateError::WriteError(format!("JSON 序列化失败: {e}")))?;
         std::fs::write(&self.storage_path, json).map_err(|e| {
             TemplateError::WriteError(format!("无法写入 {:?}: {}", self.storage_path, e))
         })?;
@@ -274,8 +274,7 @@ impl TemplatesManager {
         let has_duplicate = store.templates.values().any(|t| t.name == name);
         if has_duplicate {
             return Err(TemplateError::WriteError(format!(
-                "已存在同名模板「{}」",
-                name
+                "已存在同名模板「{name}」"
             )));
         }
 
@@ -352,7 +351,7 @@ impl TemplatesManager {
     // ── Default template ──────────────────────────────────────────
 
     /// Gets the default template. Falls back to first template if
-    /// default_template_id is not set.
+    /// `default_template_id` is not set.
     pub fn get_default_template(&self) -> Result<SettingsTemplate, TemplateError> {
         let store = self.load_store()?;
 
@@ -404,8 +403,7 @@ impl TemplatesManager {
         let project = Path::new(project_path);
         if !project.exists() {
             return Err(TemplateError::InvalidProjectPath(format!(
-                "项目路径不存在: {}",
-                project_path
+                "项目路径不存在: {project_path}"
             )));
         }
 
@@ -420,13 +418,13 @@ impl TemplatesManager {
 
         let claude_dir = project.join(".claude");
         std::fs::create_dir_all(&claude_dir)
-            .map_err(|e| TemplateError::ApplyError(format!("无法创建 .claude 目录: {}", e)))?;
+            .map_err(|e| TemplateError::ApplyError(format!("无法创建 .claude 目录: {e}")))?;
 
         let settings_path = claude_dir.join("settings.local.json");
         let json = serde_json::to_string_pretty(&merged)
-            .map_err(|e| TemplateError::ApplyError(format!("JSON 序列化失败: {}", e)))?;
+            .map_err(|e| TemplateError::ApplyError(format!("JSON 序列化失败: {e}")))?;
         std::fs::write(&settings_path, json).map_err(|e| {
-            TemplateError::ApplyError(format!("无法写入 {:?}: {}", settings_path, e))
+            TemplateError::ApplyError(format!("无法写入 {settings_path:?}: {e}"))
         })?;
 
         Ok(())

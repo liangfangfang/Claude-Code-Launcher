@@ -59,7 +59,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let title_row = row![
         text(format!("编辑项目配置：{}", state.project_name)).size(16),
         row![].width(Length::Fill),
-        button(text("✕").size(16))
+        button(text("X").size(16))
             .on_press(Message::Close)
             .style(theme::toolbar_btn_style()),
     ];
@@ -76,13 +76,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let injector_title = text("配置项快捷注入").size(13);
     let mut injector_checks = column![injector_title].spacing(4);
 
-    let mut sorted_keys: Vec<_> = injectable_items.keys().collect();
-    sorted_keys.sort();
+    let sorted_keys: Vec<_> = crate::core::config_injector::ordered_keys();
 
     for key in sorted_keys {
         let item = &injectable_items[key];
-        let is_active = state.injector_active.contains_key(key);
-        let key_clone = key.clone();
+        let is_active = state.injector_active.get(key) == Some(&true);
+        let key_clone = key.to_string();
         let cb = iced::widget::checkbox(&item.label, is_active)
             .on_toggle(move |_| Message::ToggleInjector(key_clone.clone()))
             .size(iced::Pixels(13.0));
