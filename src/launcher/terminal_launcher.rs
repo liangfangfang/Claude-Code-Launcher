@@ -1,6 +1,10 @@
-//! Terminal launcher module for launching Claude Code in various Windows terminals.
+//! Terminal launcher module for launching Claude Code in various terminals.
 //!
-//! Supports Windows Terminal (wt.exe), Command Prompt (cmd.exe), and PowerShell.
+//! **Windows:** Supports Windows Terminal (wt.exe), Command Prompt (cmd.exe),
+//! and PowerShell.
+//!
+//! **macOS:** Supports Terminal.app and iTerm2.
+//!
 //! Provides auto-detection of available terminals and script generation.
 use std::env;
 use std::fs;
@@ -24,34 +28,61 @@ pub enum TerminalType {
     Cmd,
     /// PowerShell.
     PowerShell,
+    /// macOS Terminal.app.
+    TerminalApp,
+    /// iTerm2.
+    ITerm2,
 }
 
 impl TerminalType {
     /// Parse a terminal type string into a [`TerminalType`].
     ///
-    /// Recognised values (case-insensitive): `"auto"`, `"wt"`,
-    /// `"windows-terminal"`, `"cmd"`, `"powershell"`. Anything else defaults
-    /// to [`TerminalType::Auto`].
+    /// Recognised values (case-insensitive):
+    ///   - `"auto"` → [`TerminalType::Auto`]
+    ///   - `"wt"`, `"windows-terminal"` → [`TerminalType::WindowsTerminal`]
+    ///   - `"cmd"` → [`TerminalType::Cmd`]
+    ///   - `"powershell"` → [`TerminalType::PowerShell`]
+    ///   - `"terminal"` → [`TerminalType::TerminalApp`]
+    ///   - `"iterm2"` → [`TerminalType::ITerm2`]
+    ///
+    /// Anything else defaults to [`TerminalType::Auto`].
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "wt" | "windows-terminal" => TerminalType::WindowsTerminal,
             "cmd" => TerminalType::Cmd,
             "powershell" => TerminalType::PowerShell,
+            "terminal" => TerminalType::TerminalApp,
+            "iterm2" => TerminalType::ITerm2,
             _ => TerminalType::Auto,
         }
     }
 
     /// Resolve [`TerminalType::Auto`] to an actual terminal type based on
-    /// availability (wt.exe -> powershell -> cmd).
+    /// platform-specific availability.
     pub fn resolve(&self) -> Self {
         match self {
             TerminalType::Auto => {
-                if detect_windows_terminal() {
-                    TerminalType::WindowsTerminal
-                } else if detect_powershell() {
-                    TerminalType::PowerShell
-                } else {
+                #[cfg(target_os = "macos")]
+                {
+                    if detect_iterm2() {
+                        TerminalType::ITerm2
+                    } else {
+                        TerminalType::TerminalApp
+                    }
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    if detect_windows_terminal() {
+                        TerminalType::WindowsTerminal
+                    } else if detect_powershell() {
+                        TerminalType::PowerShell
+                    } else {
+                        TerminalType::Cmd
+                    }
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                {
                     TerminalType::Cmd
                 }
             }
@@ -67,6 +98,8 @@ impl std::fmt::Display for TerminalType {
             TerminalType::WindowsTerminal => write!(f, "wt"),
             TerminalType::Cmd => write!(f, "cmd"),
             TerminalType::PowerShell => write!(f, "powershell"),
+            TerminalType::TerminalApp => write!(f, "terminal"),
+            TerminalType::ITerm2 => write!(f, "iterm2"),
         }
     }
 }
@@ -96,10 +129,11 @@ pub enum LauncherError {
 }
 
 // ---------------------------------------------------------------------------
-// Executable discovery
+// Executable discovery (cross-platform)
 // ---------------------------------------------------------------------------
 
 /// Search for an executable by name in the system `PATH`.
+#[cfg(any(target_os = "windows", test))]
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
     for dir in env::split_paths(&path_var) {
@@ -111,11 +145,16 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+// ---------------------------------------------------------------------------
+// Windows executable discovery
+// ---------------------------------------------------------------------------
+
 /// Find the Windows Terminal (`wt.exe`) executable.
 ///
 /// Searches:
 /// 1. System `PATH`
 /// 2. `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`
+#[cfg(target_os = "windows")]
 pub fn find_wt_exe() -> Option<PathBuf> {
     // 1. Search PATH first
     if let Some(path) = find_in_path("wt.exe") {
@@ -136,14 +175,37 @@ pub fn find_wt_exe() -> Option<PathBuf> {
     None
 }
 
+/// Non-Windows stub — wt.exe only exists on Windows.
+#[cfg(not(target_os = "windows"))]
+pub fn find_wt_exe() -> Option<PathBuf> {
+    None
+}
+
 /// Detect whether Windows Terminal is available on the system.
 pub fn detect_windows_terminal() -> bool {
     find_wt_exe().is_some()
 }
 
 /// Detect whether PowerShell is available on the system.
+#[cfg(target_os = "windows")]
 fn detect_powershell() -> bool {
     find_in_path("powershell.exe").is_some()
+}
+
+// ---------------------------------------------------------------------------
+// macOS executable discovery
+// ---------------------------------------------------------------------------
+
+/// Detect whether iTerm2 is installed.
+#[cfg(target_os = "macos")]
+fn detect_iterm2() -> bool {
+    Path::new("/Applications/iTerm.app").exists()
+}
+
+/// Non-macOS stub.
+#[cfg(not(target_os = "macos"))]
+fn detect_iterm2() -> bool {
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -157,10 +219,15 @@ fn temp_script_path(extension: &str) -> PathBuf {
     temp_dir.join(unique_name)
 }
 
-/// Create PowerShell and batch launch scripts for Claude Code.
+// ---------------------------------------------------------------------------
+// Windows script generation
+// ---------------------------------------------------------------------------
+
+/// Create PowerShell and batch launch scripts for Claude Code (Windows).
 ///
 /// Returns the paths to the created `.ps1` and `.bat` files.  The caller is
 /// responsible for cleaning them up (see [`cleanup_launch_scripts`]).
+#[cfg(target_os = "windows")]
 pub fn create_launch_scripts(
     project_path: &str,
     project_name: &str,
@@ -208,7 +275,42 @@ pub fn create_launch_scripts(
 }
 
 // ---------------------------------------------------------------------------
-// Command building
+// macOS script generation
+// ---------------------------------------------------------------------------
+
+/// Create a shell launch script for Claude Code (macOS).
+///
+/// Returns the path to the created `.sh` file. The caller is responsible for
+/// cleaning it up.
+#[cfg(target_os = "macos")]
+fn create_sh_launch_script(
+    project_path: &str,
+    project_name: &str,
+    claude_cmd_str: &str,
+) -> Result<PathBuf, LauncherError> {
+    let window_title = format!("{} - Claude Code", project_name);
+    let sh_content = format!(
+        "#!/bin/bash\n\
+         cd \"{}\" || exit 1\n\
+         printf '\\e]0;%s\\a' \"{}\"\n\
+         echo \"Starting Claude Code in: {}\"\n\
+         echo\n\
+         {}\n",
+        project_path, window_title, project_name, claude_cmd_str
+    );
+    let sh_path = temp_script_path("sh");
+    fs::write(&sh_path, sh_content.as_bytes()).map_err(|e| {
+        LauncherError::ScriptCreationFailed(format!(
+            "无法写入Shell脚本 {}: {}",
+            sh_path.display(),
+            e
+        ))
+    })?;
+    Ok(sh_path)
+}
+
+// ---------------------------------------------------------------------------
+// Command building (cross-platform)
 // ---------------------------------------------------------------------------
 
 /// Build the Claude CLI command string based on launch options.
@@ -226,10 +328,11 @@ fn build_claude_command(skip_permissions: bool, continue_session: bool) -> Strin
 }
 
 // ---------------------------------------------------------------------------
-// Terminal-specific launchers
+// Windows terminal launchers
 // ---------------------------------------------------------------------------
 
 /// Spawn Claude Code inside Windows Terminal.
+#[cfg(target_os = "windows")]
 fn launch_in_wt(
     ps1_path: &Path,
     project_path: &str,
@@ -261,6 +364,7 @@ fn launch_in_wt(
 }
 
 /// Spawn Claude Code inside Command Prompt.
+#[cfg(target_os = "windows")]
 fn launch_in_cmd(bat_path: &Path) -> Result<Child, LauncherError> {
     let bat = bat_path.to_string_lossy().to_string();
 
@@ -271,6 +375,7 @@ fn launch_in_cmd(bat_path: &Path) -> Result<Child, LauncherError> {
 }
 
 /// Spawn Claude Code inside PowerShell.
+#[cfg(target_os = "windows")]
 fn launch_in_powershell(ps1_path: &Path) -> Result<Child, LauncherError> {
     if find_in_path("powershell.exe").is_none() {
         return Err(LauncherError::ExecutableNotFound(
@@ -286,6 +391,36 @@ fn launch_in_powershell(ps1_path: &Path) -> Result<Child, LauncherError> {
 }
 
 // ---------------------------------------------------------------------------
+// macOS terminal launchers
+// ---------------------------------------------------------------------------
+
+/// Spawn Claude Code inside macOS Terminal.app.
+#[cfg(target_os = "macos")]
+fn launch_in_terminal_app(sh_path: &Path) -> Result<Child, LauncherError> {
+    let script = format!(
+        "tell app \"Terminal\" to do script \"bash '{}'\"",
+        sh_path.to_string_lossy()
+    );
+    Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map_err(|e| LauncherError::LaunchFailed(format!("启动 Terminal 失败: {}", e)))
+}
+
+/// Spawn Claude Code inside iTerm2.
+#[cfg(target_os = "macos")]
+fn launch_in_iterm2(sh_path: &Path) -> Result<Child, LauncherError> {
+    let script = format!(
+        "tell app \"iTerm\" to create window with default profile command \"bash '{}'\"",
+        sh_path.to_string_lossy()
+    );
+    Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map_err(|e| LauncherError::LaunchFailed(format!("启动 iTerm2 失败: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -296,7 +431,8 @@ fn launch_in_powershell(ps1_path: &Path) -> Result<Child, LauncherError> {
 /// * `project_name`  - Display name used in the terminal window title.
 /// * `skip_permissions` - Pass `--dangerously-skip-permissions` to Claude.
 /// * `continue_session` - Pass `--continue` to Claude.
-/// * `terminal`      - One of `"auto"`, `"wt"`, `"cmd"`, `"powershell"`.
+/// * `terminal`      - One of `"auto"`, `"wt"`, `"cmd"`, `"powershell"`,
+///                      `"terminal"`, `"iterm2"`.
 ///
 /// # Returns
 /// A [`Child`] handle to the spawned terminal process.
@@ -312,31 +448,66 @@ pub fn launch_claude_code(
 ) -> Result<Child, LauncherError> {
     let term = TerminalType::from_str(terminal);
     let resolved = term.resolve();
-
     let claude_cmd = build_claude_command(skip_permissions, continue_session);
-    let (ps1_path, bat_path) = create_launch_scripts(project_path, project_name, &claude_cmd)?;
 
-    let child = match resolved {
-        TerminalType::WindowsTerminal => launch_in_wt(&ps1_path, project_path, project_name)?,
-        TerminalType::Cmd => launch_in_cmd(&bat_path)?,
-        TerminalType::PowerShell => launch_in_powershell(&ps1_path)?,
-        TerminalType::Auto => unreachable!("Auto is always resolved before this match"),
-    };
+    #[cfg(target_os = "windows")]
+    {
+        let (ps1_path, bat_path) =
+            create_launch_scripts(project_path, project_name, &claude_cmd)?;
 
-    Ok(child)
+        let child = match resolved {
+            TerminalType::WindowsTerminal => {
+                launch_in_wt(&ps1_path, project_path, project_name)?
+            }
+            TerminalType::Cmd => launch_in_cmd(&bat_path)?,
+            TerminalType::PowerShell => launch_in_powershell(&ps1_path)?,
+            _ => unreachable!("非 Windows 终端类型不会在 Windows 上解析"),
+        };
+
+        Ok(child)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let sh_path = create_sh_launch_script(project_path, project_name, &claude_cmd)?;
+
+        let child = match resolved {
+            TerminalType::ITerm2 => launch_in_iterm2(&sh_path)?,
+            TerminalType::TerminalApp => launch_in_terminal_app(&sh_path)?,
+            _ => unreachable!("非 macOS 终端类型不会在 macOS 上解析"),
+        };
+
+        Ok(child)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Err(LauncherError::LaunchFailed(
+            "不支持的平台".to_string(),
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Cleanup
+// Cleanup (cross-platform)
 // ---------------------------------------------------------------------------
 
 /// Remove launch scripts from the temp directory.
 ///
 /// Silently ignores errors (e.g. if the files have already been deleted or the
 /// terminal is still reading them).
+#[cfg(target_os = "windows")]
 pub fn cleanup_launch_scripts(ps1_path: &Path, bat_path: &Path) {
     let _ = fs::remove_file(ps1_path);
     let _ = fs::remove_file(bat_path);
+}
+
+/// Remove a launch script from the temp directory (macOS).
+///
+/// Silently ignores errors.
+#[cfg(target_os = "macos")]
+pub fn cleanup_launch_scripts(sh_path: &Path) {
+    let _ = fs::remove_file(sh_path);
 }
 
 /// 清理临时目录中所有残留的启动脚本（应用启动时调用）。
@@ -347,7 +518,9 @@ pub fn cleanup_old_launch_scripts() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if name_str.starts_with("claude-launcher-")
-                && (name_str.ends_with(".ps1") || name_str.ends_with(".bat"))
+                && (name_str.ends_with(".ps1")
+                    || name_str.ends_with(".bat")
+                    || name_str.ends_with(".sh"))
             {
                 let _ = fs::remove_file(entry.path());
             }
@@ -385,6 +558,16 @@ mod tests {
             TerminalType::from_str("PowerShell"),
             TerminalType::PowerShell
         );
+        assert_eq!(
+            TerminalType::from_str("terminal"),
+            TerminalType::TerminalApp
+        );
+        assert_eq!(
+            TerminalType::from_str("Terminal"),
+            TerminalType::TerminalApp
+        );
+        assert_eq!(TerminalType::from_str("iterm2"), TerminalType::ITerm2);
+        assert_eq!(TerminalType::from_str("iTerm2"), TerminalType::ITerm2);
         assert_eq!(TerminalType::from_str("auto"), TerminalType::Auto);
         assert_eq!(TerminalType::from_str("invalid"), TerminalType::Auto);
         assert_eq!(TerminalType::from_str(""), TerminalType::Auto);
@@ -396,18 +579,14 @@ mod tests {
         assert_eq!(TerminalType::WindowsTerminal.to_string(), "wt");
         assert_eq!(TerminalType::Cmd.to_string(), "cmd");
         assert_eq!(TerminalType::PowerShell.to_string(), "powershell");
+        assert_eq!(TerminalType::TerminalApp.to_string(), "terminal");
+        assert_eq!(TerminalType::ITerm2.to_string(), "iterm2");
     }
 
     #[test]
     fn test_terminal_type_resolve_never_returns_auto() {
         let resolved = TerminalType::Auto.resolve();
         assert_ne!(resolved, TerminalType::Auto);
-        // Should be one of the concrete terminal types
-        assert!(
-            resolved == TerminalType::WindowsTerminal
-                || resolved == TerminalType::PowerShell
-                || resolved == TerminalType::Cmd
-        );
     }
 
     #[test]
@@ -418,6 +597,8 @@ mod tests {
             TerminalType::WindowsTerminal.resolve(),
             TerminalType::WindowsTerminal
         );
+        assert_eq!(TerminalType::TerminalApp.resolve(), TerminalType::TerminalApp);
+        assert_eq!(TerminalType::ITerm2.resolve(), TerminalType::ITerm2);
     }
 
     // -----------------------------------------------------------------------
@@ -475,9 +656,10 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Script generation
+    // Script generation — Windows
     // -----------------------------------------------------------------------
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_create_launch_scripts_basic() {
         let (ps1, bat) =
@@ -521,6 +703,7 @@ mod tests {
         cleanup_launch_scripts(&ps1, &bat);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_create_launch_scripts_special_chars_in_path() {
         let (ps1, bat) = create_launch_scripts(
@@ -539,6 +722,7 @@ mod tests {
         cleanup_launch_scripts(&ps1, &bat);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_ps1_script_line_structure() {
         let (ps1, bat) = create_launch_scripts("D:\\Dev\\App", "App", "claude").unwrap();
@@ -553,6 +737,7 @@ mod tests {
         cleanup_launch_scripts(&ps1, &bat);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_bat_script_line_structure() {
         let (ps1, bat) = create_launch_scripts("D:\\Dev\\App", "App", "claude").unwrap();
@@ -569,9 +754,55 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Script generation — macOS
+    // -----------------------------------------------------------------------
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_create_sh_launch_script_basic() {
+        let sh =
+            create_sh_launch_script("/Users/test/MyProject", "MyProject", "claude --continue")
+                .unwrap();
+
+        assert_eq!(sh.extension().unwrap(), "sh");
+        assert!(
+            sh.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("claude-launcher-")
+        );
+
+        let content = fs::read_to_string(&sh).unwrap();
+        assert!(content.contains("#!/bin/bash"));
+        assert!(content.contains("cd \"/Users/test/MyProject\""));
+        assert!(content.contains("MyProject - Claude Code"));
+        assert!(content.contains("claude --continue"));
+
+        cleanup_launch_scripts(&sh);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_create_sh_launch_script_special_chars() {
+        let sh = create_sh_launch_script(
+            "/Users/test/My Project (2024)",
+            "My Project",
+            "claude --dangerously-skip-permissions",
+        )
+        .unwrap();
+
+        let content = fs::read_to_string(&sh).unwrap();
+        assert!(content.contains("/Users/test/My Project (2024)"));
+
+        cleanup_launch_scripts(&sh);
+    }
+
+    // -----------------------------------------------------------------------
     // Cleanup
     // -----------------------------------------------------------------------
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_cleanup_removes_files() {
         let (ps1, bat) = create_launch_scripts("/tmp/test", "T", "claude").unwrap();
@@ -585,12 +816,28 @@ mod tests {
         assert!(!bat.exists());
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_cleanup_nonexistent_does_not_panic() {
         cleanup_launch_scripts(
             PathBuf::from("/tmp/no_such_file_abc.ps1").as_path(),
             PathBuf::from("/tmp/no_such_file_xyz.bat").as_path(),
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_cleanup_removes_file_macos() {
+        let sh = create_sh_launch_script("/tmp/test", "T", "claude").unwrap();
+        assert!(sh.exists());
+        cleanup_launch_scripts(&sh);
+        assert!(!sh.exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_cleanup_nonexistent_does_not_panic_macos() {
+        cleanup_launch_scripts(PathBuf::from("/tmp/no_such_file_abc.sh").as_path());
     }
 
     // -----------------------------------------------------------------------
@@ -627,19 +874,19 @@ mod tests {
 
         let p = temp_script_path("bat");
         assert_eq!(p.extension().unwrap(), "bat");
+
+        let p = temp_script_path("sh");
+        assert_eq!(p.extension().unwrap(), "sh");
     }
 
     // -----------------------------------------------------------------------
     // Integration-style: launch_claude_code error paths
     // -----------------------------------------------------------------------
 
+    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "spawns real terminal processes — run with: cargo test -- --ignored"]
     fn test_launch_claude_code_invalid_project_path_does_not_panic() {
-        // We can't easily test a *successful* launch without a real terminal,
-        // but we can verify the function at least reaches script creation.
-        // An invalid path will still create scripts; launch may fail if wt is
-        // not available, and that's fine.
         let result = launch_claude_code(
             "Z:\\nonexistent\\project",
             "TestProj",
@@ -647,31 +894,23 @@ mod tests {
             false,
             "powershell",
         );
-        // On CI / environments without PowerShell in PATH this may fail.
-        // We just care that it returns a Result (not panics).
         match result {
-            Ok(_child) => {
-                // Launched successfully — nothing more to assert.
-            }
+            Ok(_child) => {}
             Err(LauncherError::LaunchFailed(msg)) => {
-                // Expected on most CI runners.
                 assert!(msg.len() > 0);
             }
-            Err(LauncherError::ExecutableNotFound(_)) => {
-                // PowerShell not found — also acceptable.
-            }
+            Err(LauncherError::ExecutableNotFound(_)) => {}
             Err(other) => {
                 panic!("Unexpected error: {}", other);
             }
         }
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "spawns real terminal processes — run with: cargo test -- --ignored"]
     fn test_launch_claude_code_auto_terminal() {
         let result = launch_claude_code("Z:\\nonexistent\\project", "AutoTest", true, true, "auto");
-        // "auto" resolves to wt, powershell, or cmd; either way it may fail
-        // on CI but must not panic.
         match result {
             Ok(_)
             | Err(LauncherError::LaunchFailed(_))
@@ -680,10 +919,39 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "spawns real terminal processes — run with: cargo test -- --ignored"]
     fn test_launch_claude_code_cmd_terminal() {
         let result = launch_claude_code("Z:\\nonexistent", "CmdTest", false, false, "cmd");
+        match result {
+            Ok(_) | Err(LauncherError::LaunchFailed(_)) => {}
+            Err(other) => panic!("Unexpected error: {}", other),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "spawns real terminal processes — run with: cargo test -- --ignored"]
+    fn test_launch_claude_code_macos_terminal() {
+        let result = launch_claude_code(
+            "/nonexistent/project",
+            "TestProj",
+            false,
+            false,
+            "terminal",
+        );
+        match result {
+            Ok(_) | Err(LauncherError::LaunchFailed(_)) => {}
+            Err(other) => panic!("Unexpected error: {}", other),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "spawns real terminal processes — run with: cargo test -- --ignored"]
+    fn test_launch_claude_code_macos_auto() {
+        let result = launch_claude_code("/nonexistent/project", "AutoTest", true, true, "auto");
         match result {
             Ok(_) | Err(LauncherError::LaunchFailed(_)) => {}
             Err(other) => panic!("Unexpected error: {}", other),

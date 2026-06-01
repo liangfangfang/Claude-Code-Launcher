@@ -2,7 +2,7 @@
 name = "claude-launcher"
 version = "2.2.1"
 edition = "2024"
-description = "Claude Code Launcher - A Windows GUI tool for managing and launching Claude Code projects"
+description = "Claude Code Launcher - A cross-platform GUI tool for managing and launching Claude Code projects"
 authors = ["akchth"]
 license = "MIT"
 readme = "README.md"

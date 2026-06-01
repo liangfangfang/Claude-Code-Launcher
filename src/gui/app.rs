@@ -266,9 +266,24 @@ impl App {
                 if let Some(p) = self.project_list.iter().find(|p| p.id == id) {
                     let path = std::path::Path::new(&p.path);
                     if path.exists() {
-                        let _ = std::process::Command::new("explorer.exe")
-                            .arg(&p.path)
-                            .spawn();
+                        #[cfg(target_os = "windows")]
+                        {
+                            let _ = std::process::Command::new("explorer.exe")
+                                .arg(&p.path)
+                                .spawn();
+                        }
+                        #[cfg(target_os = "macos")]
+                        {
+                            let _ = std::process::Command::new("open")
+                                .arg(&p.path)
+                                .spawn();
+                        }
+                        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+                        {
+                            let _ = std::process::Command::new("xdg-open")
+                                .arg(&p.path)
+                                .spawn();
+                        }
                     } else {
                         self.status_message =
                             Some(format!("项目目录不存在：{}", p.path));
@@ -1553,6 +1568,7 @@ fn overlay<'a>(main: Element<'a, Message>, dialog: Element<'a, Message>) -> Elem
 
 // ── 异步辅助 ──────────────────────────────────────────────────────────
 
+#[cfg(target_os = "windows")]
 async fn browse_folder() -> Option<String> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1584,4 +1600,36 @@ async fn browse_folder() -> Option<String> {
         tracing::warn!("浏览文件夹对话框失败或用户取消");
     }
     result
+}
+
+#[cfg(target_os = "macos")]
+async fn browse_folder() -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = (|| -> Option<String> {
+            let output = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    "set folderPath to POSIX path of (choose folder with prompt \"选择项目目录\")",
+                ])
+                .output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path.is_empty() { None } else { Some(path) }
+        })();
+        let _ = tx.send(result);
+    });
+    let result = rx.recv().ok().flatten();
+    if result.is_none() {
+        tracing::warn!("浏览文件夹对话框失败或用户取消");
+    }
+    result
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+async fn browse_folder() -> Option<String> {
+    tracing::warn!("当前平台不支持文件夹浏览对话框");
+    None
 }

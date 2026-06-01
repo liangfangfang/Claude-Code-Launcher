@@ -1,5 +1,5 @@
-// 隐藏控制台窗口，仅显示 GUI
-#![windows_subsystem = "windows"]
+// 隐藏控制台窗口，仅显示 GUI（仅 Windows 需要）
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 fn main() -> iced::Result {
     // 初始化日志
@@ -7,31 +7,31 @@ fn main() -> iced::Result {
 
     tracing::info!("Claude Code Launcher v2.2.1 启动");
 
-    // 检测管理员权限
-    if !claude_launcher::admin::is_admin() {
-        tracing::warn!("未以管理员身份运行，尝试提升权限...");
-        match claude_launcher::admin::request_elevation() {
-            Ok(true) => {
-                // 权限提升成功，新进程会启动，当前进程应退出
-                std::process::exit(0);
-            }
-            Ok(false) => {
-                // 用户拒绝了权限提升
-                show_admin_required_dialog();
-                std::process::exit(1);
-            }
-            Err(e) => {
-                tracing::error!("权限提升失败: {e}");
-                show_admin_required_dialog();
-                std::process::exit(1);
+    // Windows 专有：管理员权限检测 + 配置兼容性检查
+    #[cfg(target_os = "windows")]
+    {
+        if !claude_launcher::admin::is_admin() {
+            tracing::warn!("未以管理员身份运行，尝试提升权限...");
+            match claude_launcher::admin::request_elevation() {
+                Ok(true) => {
+                    std::process::exit(0);
+                }
+                Ok(false) => {
+                    show_admin_required_dialog();
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    tracing::error!("权限提升失败: {e}");
+                    show_admin_required_dialog();
+                    std::process::exit(1);
+                }
             }
         }
+
+        tracing::info!("已以管理员身份运行");
+
+        check_config_compatibility();
     }
-
-    tracing::info!("已以管理员身份运行");
-
-    // 配置目录校验：检查旧版本配置兼容性
-    check_config_compatibility();
 
     // 首次启动自动备份
     if let Ok(mgr) = claude_launcher::core::backup_manager::BackupManager::default_manager() {
@@ -41,13 +41,24 @@ fn main() -> iced::Result {
     // 清理残留的启动脚本文件
     claude_launcher::launcher::terminal_launcher::cleanup_old_launch_scripts();
 
-    // 默认字体设为微软雅黑，确保中文正常显示
+    // macOS：使用华文黑体（固定路径，始终存在）作为默认中文字体
+    // Windows：使用微软雅黑
+    #[cfg(target_os = "macos")]
+    let default_font = iced::Font {
+        family: iced::font::Family::Name("STHeiti"),
+        weight: iced::font::Weight::Normal,
+        stretch: iced::font::Stretch::Normal,
+        style: iced::font::Style::Normal,
+    };
+    #[cfg(target_os = "windows")]
     let default_font = iced::Font {
         family: iced::font::Family::Name("Microsoft YaHei"),
         weight: iced::font::Weight::Normal,
         stretch: iced::font::Stretch::Normal,
         style: iced::font::Style::Normal,
     };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let default_font = iced::Font::default();
 
     // 加载中文字体到 iced 的字体系统
     let font_task = load_chinese_font();
@@ -83,6 +94,8 @@ fn main() -> iced::Result {
     })
 }
 
+// ── Windows 专有函数 ──────────────────────────────────────────────────
+
 /// 显示需要管理员权限的对话框
 #[cfg(target_os = "windows")]
 fn show_admin_required_dialog() {
@@ -104,6 +117,7 @@ fn show_admin_required_dialog() {
 }
 
 /// 检查配置目录兼容性，发现旧版本配置时弹窗确认归档。
+#[cfg(target_os = "windows")]
 fn check_config_compatibility() {
     let report = claude_launcher::core::config_migrator::validate_config_dir();
 
@@ -122,7 +136,6 @@ fn check_config_compatibility() {
         report.incompatible_files
     );
 
-    // 弹窗询问用户是否归档
     let msg = claude_launcher::core::config_migrator::build_archive_message(&report);
     let confirmed = show_archive_confirm_dialog(&msg);
 
@@ -205,17 +218,29 @@ fn show_error_dialog(message: &str) {
     }
 }
 
-/// 尝试从 Windows 系统字体目录加载中文字体。
+// ── 字体加载 ──────────────────────────────────────────────────────────
+
+/// 尝试从系统字体目录加载中文字体。
 ///
 /// iced 0.13 的 `Family::Name` 需要字体先通过 `font::load()` 注册到
 /// iced 的字体系统中，否则只会使用内置的 Latin 字体，导致中文显示为方框。
 fn load_chinese_font() -> iced::Task<claude_launcher::gui::app::Message> {
+    // macOS：扫描系统字体目录中有 CJK 支持的字体
+    #[cfg(target_os = "macos")]
+    let font_paths = get_macos_cjk_font_paths();
+
+    // Windows 系统字体
+    #[cfg(target_os = "windows")]
     let font_paths = [
-        "C:\\Windows\\Fonts\\msyh.ttc",   // 微软雅黑 (TrueType Collection)
-        "C:\\Windows\\Fonts\\msyh.ttf",   // 微软雅黑 (单个文件)
-        "C:\\Windows\\Fonts\\simhei.ttf", // 黑体
-        "C:\\Windows\\Fonts\\simsun.ttc", // 宋体
+        "C:\\Windows\\Fonts\\msyh.ttc".to_string(),   // 微软雅黑
+        "C:\\Windows\\Fonts\\msyh.ttf".to_string(),   // 微软雅黑 (单个文件)
+        "C:\\Windows\\Fonts\\simhei.ttf".to_string(), // 黑体
+        "C:\\Windows\\Fonts\\simsun.ttc".to_string(), // 宋体
     ];
+
+    // Linux / 其他平台回退
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let font_paths: [String; 0] = [];
 
     for path in &font_paths {
         if let Ok(bytes) = std::fs::read(path) {
@@ -232,4 +257,35 @@ fn load_chinese_font() -> iced::Task<claude_launcher::gui::app::Message> {
 
     tracing::warn!("未找到中文字体文件，中文可能无法正常显示");
     iced::Task::none()
+}
+
+/// 在 macOS 上扫描已知位置的中文字体文件。
+#[cfg(target_os = "macos")]
+fn get_macos_cjk_font_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+
+    // 固定路径的字体（macOS 13+ 仍保留这些）
+    for p in &[
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+    ] {
+        if std::path::Path::new(p).exists() {
+            paths.push(p.to_string());
+        }
+    }
+
+    // PingFang 在 macOS Ventura+ 移到了 AssetsV2 动态路径
+    if let Ok(entries) = std::fs::read_dir("/System/Library/AssetsV2") {
+        for entry in entries.flatten() {
+            let asset_dir = entry.path();
+            let font_file = asset_dir.join("AssetData").join("PingFang.ttc");
+            if font_file.exists() {
+                paths.push(font_file.to_string_lossy().to_string());
+                break;
+            }
+        }
+    }
+
+    paths
 }
